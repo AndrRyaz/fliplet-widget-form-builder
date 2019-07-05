@@ -94,6 +94,7 @@ Fliplet.Widget.instance('form-builder', function(data) {
         }
       });
     }
+
     return fields;
   }
 
@@ -102,11 +103,11 @@ Fliplet.Widget.instance('form-builder', function(data) {
   }
 
   var changeListeners = {};
+
   var $form = new Vue({
     el: $(selector)[0],
     data: function() {
       return {
-        isValidForm: false,
         isSent: false,
         isSending: false,
         isSendingMessage: 'Saving data...',
@@ -128,7 +129,6 @@ Fliplet.Widget.instance('form-builder', function(data) {
           return !!el.required;
         });
       }
-
     },
     methods: {
       start: function() {
@@ -238,162 +238,157 @@ Fliplet.Widget.instance('form-builder', function(data) {
         return found;
       },
       onSubmit: function() {
-        var $vm = this;
-        var formData = {};
-
         Fliplet.Analytics.trackEvent({
           category: 'form',
           action: 'submit'
         });
 
-        $vm.isValidForm = this.fields.some(function (field) {
-          return field.value !== undefined && field.value.trim() !== ''
+        var $vm = this;
+        var formData = {};
+
+        this.isSending = true;
+
+        function appendField(name, value) {
+          if (Array.isArray(formData[name])) {
+            formData[name].push(value);
+          } else if (typeof formData[name] !== 'undefined') {
+            formData[name] = [formData[name], value];
+          } else {
+            formData[name] = value;
+          }
+        }
+
+        var errorFields = Object.keys(this.errors);
+        var fieldErrors = [];
+        if (errorFields.length) {
+          errorFields.forEach(function (fieldName) {
+            fieldErrors.push(errorFields[fieldName]);
+          });
+
+          $vm.error = fieldErrors.join('. ');
+          $vm.isSending = false;
+          return;
+        }
+
+        this.fields.forEach(function(field) {
+          var value = field.value;
+          var type = field._type;
+
+          if (field._submit === false || !field.enabled) {
+            return;
+          }
+
+          if (field.submitWhenFalsy === false && !value) {
+            return;
+          }
+
+          if (isFile(value)) {
+            // File input
+            for (var i = 0; i < value.length; i++) {
+              appendField(field.name, value.item(i));
+            }
+          } else {
+            // Remove spaces and dashes from value (when it's a string)
+            if (typeof value === 'string' && ['flNumber', 'flTelephone'].indexOf(type) !== -1) {
+              value = value.replace(/-|\s/g, '');
+            }
+            if (type === 'flDate') {
+              value = moment(value).format('YYYY-MM-DD');
+            }
+            // Other inputs
+            appendField(field.name, value);
+          }
         });
 
-        if ($vm.isValidForm) {
-
-          this.isSending = true;
-
-          function appendField(name, value) {
-            if (Array.isArray(formData[name])) {
-              formData[name].push(value);
-            } else if (typeof formData[name] !== 'undefined') {
-              formData[name] = [formData[name], value];
-            } else {
-              formData[name] = value;
-            }
+        formPromise.then(function (form) {
+          return Fliplet.Hooks.run('beforeFormSubmit', formData, form);
+        }).then(function() {
+          if (data.dataSourceId) {
+            return Fliplet.DataSources.connect(data.dataSourceId);
           }
 
-          var errorFields = Object.keys(this.errors);
-          var fieldErrors = [];
-          if (errorFields.length) {
-            errorFields.forEach(function (fieldName) {
-              fieldErrors.push(errorFields[fieldName]);
-            });
-
-            $vm.error = fieldErrors.join('. ');
-            $vm.isSending = false;
-            return;
-          }
-
-          this.fields.forEach(function(field) {
-            var value = field.value;
-            var type = field._type;
-
-            if (field._submit === false || !field.enabled) {
-              return;
-            }
-
-            if (field.submitWhenFalsy === false && !value) {
-              return;
-            }
-
-            if (isFile(value)) {
-              // File input
-              for (var i = 0; i < value.length; i++) {
-                appendField(field.name, value.item(i));
-              }
-            } else {
-              // Remove spaces and dashes from value (when it's a string)
-              if (typeof value === 'string' && ['flNumber', 'flTelephone'].indexOf(type) !== -1) {
-                value = value.replace(/-|\s/g, '');
-              }
-              if (type === 'flDate') {
-                value = moment(value).format('YYYY-MM-DD');
-              }
-              // Other inputs
-              appendField(field.name, value);
+          return;
+        }).then(function(connection) {
+          // Append schema as private variable
+          formData._flSchema = {};
+          $vm.fields.forEach(function(field) {
+            if (field.mediaFolderId) {
+              formData._flSchema[field.name] = {
+                mediaFolderId: field.mediaFolderId
+              };
             }
           });
 
-          formPromise.then(function (form) {
-            return Fliplet.Hooks.run('beforeFormSubmit', formData, form);
-          }).then(function() {
-            if (data.dataSourceId) {
-              return Fliplet.DataSources.connect(data.dataSourceId);
-            }
-
-            return;
-          }).then(function(connection) {
-            // Append schema as private variable
-            formData._flSchema = {};
-            $vm.fields.forEach(function(field) {
-              if (field.mediaFolderId) {
-                formData._flSchema[field.name] = {
-                  mediaFolderId: field.mediaFolderId
-                };
-              }
+          if (entryId && entry && data.dataSourceId) {
+            return connection.update(entryId, formData, {
+              offline: false,
+              ack: data.linkAction && data.redirect
             });
+          }
 
-            if (entryId && entry && data.dataSourceId) {
-              return connection.update(entryId, formData, {
-                offline: false,
-                ack: data.linkAction && data.redirect
-              });
-            }
-
-            if (data.dataStore && data.dataStore.indexOf('dataSource') > -1 && data.dataSourceId) {
-              return connection.insert(formData, {
-                offline: data.offline,
-                ack: data.linkAction && data.redirect
-              });
-            }
-
-            return;
-          }).then(function(result) {
-            return formPromise.then(function (form) {
-              return Fliplet.Hooks.run('afterFormSubmit', { formData: formData, result: result }, form);
+          if (data.dataStore && data.dataStore.indexOf('dataSource') > -1 && data.dataSourceId) {
+            return connection.insert(formData, {
+              offline: data.offline,
+              ack: data.linkAction && data.redirect
             });
-          }).then(function() {
-            if (data.saveProgress) {
-              localStorage.removeItem(progressKey);
-            }
+          }
 
-            var operation = Promise.resolve();
-
-            // Emails are only sent by the client when data source hooks aren't set
-            if (!data.dataSourceId) {
-              if (data.emailTemplateAdd && data.onSubmit && data.onSubmit.indexOf('templatedEmailAdd') > -1) {
-                operation = Fliplet.Communicate.sendEmail(_.extend({}, data.emailTemplateAdd), formData);
-              }
-
-              if (data.emailTemplateEdit && data.onSubmit && data.onSubmit.indexOf('templatedEmailEdit') > -1) {
-                operation = Fliplet.Communicate.sendEmail(_.extend({}, data.emailTemplateEdit), formData);
-              }
-            }
-
-            if (data.generateEmailTemplate && data.onSubmit && data.onSubmit.indexOf('generateEmail') > -1) {
-              operation = Fliplet.Communicate.composeEmail(_.extend({}, data.generateEmailTemplate), formData);
-            }
-
-            if (data.linkAction && data.redirect) {
-              return operation.then(function () {
-                Fliplet.Navigate.to(data.linkAction);
-              }).catch(function (err) {
-                alert(err.description || err.message || err.description || err.reason || err);
-                Fliplet.Navigate.to(data.linkAction);
-              })
-            }
-
-            $vm.isSent = true;
-            $vm.isSending = false;
-            $vm.reset(false);
-
-            $vm.loadEntryForUpdate();
-          }, function(err) {
-            console.error(err);
-            $vm.error = err.message || err.description || err;
-            $vm.isSending = false;
-            Fliplet.Hooks.run('onFormSubmitError', { formData: formData, error: err });
+          return;
+        }).then(function(result) {
+          return formPromise.then(function (form) {
+            return Fliplet.Hooks.run('afterFormSubmit', { formData: formData, result: result }, form);
           });
+        }).then(function() {
+          if (data.saveProgress) {
+            localStorage.removeItem(progressKey);
+          }
 
-          // We might use this code to save the form data locally when going away from the page
-          // $(window).unload(function onWindowUnload() {
-          //   localStorage.setItem('fl-form-data-' + data.id, this.fields.map(function (field) {
-          //     return { name: field.name, value: field.value };
-          //   }));
-          // });
-        }
+          var operation = Promise.resolve();
+
+          // Emails are only sent by the client when data source hooks aren't set
+          if (!data.dataSourceId) {
+            if (data.emailTemplateAdd && data.onSubmit && data.onSubmit.indexOf('templatedEmailAdd') > -1) {
+              operation = Fliplet.Communicate.sendEmail(_.extend({}, data.emailTemplateAdd), formData);
+            }
+
+            if (data.emailTemplateEdit && data.onSubmit && data.onSubmit.indexOf('templatedEmailEdit') > -1) {
+              operation = Fliplet.Communicate.sendEmail(_.extend({}, data.emailTemplateEdit), formData);
+            }
+          }
+
+          if (data.generateEmailTemplate && data.onSubmit && data.onSubmit.indexOf('generateEmail') > -1) {
+            operation = Fliplet.Communicate.composeEmail(_.extend({}, data.generateEmailTemplate), formData);
+          }
+
+          if (data.linkAction && data.redirect) {
+            return operation.then(function () {
+              Fliplet.Navigate.to(data.linkAction);
+            }).catch(function (err) {
+              Fliplet.Modal.alert({
+                message: Fliplet.parseError(err)
+              });
+              Fliplet.Navigate.to(data.linkAction);
+            })
+          }
+
+          $vm.isSent = true;
+          $vm.isSending = false;
+          $vm.reset(false);
+
+          $vm.loadEntryForUpdate();
+        }, function(err) {
+          console.error(err);
+          $vm.error = err.message || err.description || err;
+          $vm.isSending = false;
+          Fliplet.Hooks.run('onFormSubmitError', { formData: formData, error: err });
+        });
+
+        // We might use this code to save the form data locally when going away from the page
+        // $(window).unload(function onWindowUnload() {
+        //   localStorage.setItem('fl-form-data-' + data.id, this.fields.map(function (field) {
+        //     return { name: field.name, value: field.value };
+        //   }));
+        // });
       },
       loadEntryForUpdate: function(fn) {
         var $vm = this;
