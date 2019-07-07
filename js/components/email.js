@@ -6,10 +6,16 @@ Fliplet.FormBuilder.field('email', {
       type: String
     }
   },
-  validations: {
-    value: {
-      email: window.validators.email,
-      required: window.validators.required
+  validations: function() {
+    var rules = {
+      value: {
+        email: window.validators.email
+      }
+    };
+
+    if (this.required) {
+      rules.value.required = window.validators.required
     }
+    return rules;
   }
 });

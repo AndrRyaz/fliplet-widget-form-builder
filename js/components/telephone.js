@@ -6,9 +6,16 @@ Fliplet.FormBuilder.field('telephone', {
       type: String
     }
   },
-  validations: {
-    value: {
-      required: window.validators.required
+  validations: function () {
+    var rules = {
+      value: {
+        phone: window.validators.helpers.regex('', /^[0-9;,.()\-+\n*#]+$/)
+      }
+    };
+
+    if (this.required) {
+      rules.value.required = window.validators.required
     }
+    return rules;
   }
 });

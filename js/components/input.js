@@ -6,10 +6,14 @@ Fliplet.FormBuilder.field('input', {
       type: String
     }
   },
-  validations: {
-    value: {
-      minLength: window.validators.minLength(5),
-      required: window.validators.required
+  validations: function () {
+    var rules = {
+      value: {}
+    };
+
+    if (this.required) {
+      rules.value.required = window.validators.required
     }
+    return rules;
   }
 });
