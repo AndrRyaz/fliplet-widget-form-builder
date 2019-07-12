@@ -27,11 +27,11 @@ Fliplet.FormBuilder.field('number', {
 
     if (this.positiveOnly) {
       rules.value.minValue = window.validators.minValue(0);
+    }
 
-      if (this.decimals > 0) {
-        rules.value.decimal = this.decimalValidator(this.decimals);
-        delete rules.value.integer;
-      }
+    if (this.decimals > 0) {
+      delete rules.value.integer;
+      rules.value.decimal = this.decimalValidator(this.decimals);
     }
 
     return rules;
@@ -45,6 +45,12 @@ Fliplet.FormBuilder.field('number', {
         },
         function (value) {
           if (!value) {
+            return false;
+          }
+
+          var decimal = /^(-?\d+\.?\d{0,9}|\.\d{1,10})$/;
+
+          if (!decimal.test(value)) {
             return false;
           }
 
