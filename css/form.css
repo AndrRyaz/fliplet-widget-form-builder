@@ -521,6 +521,11 @@ html[dir="rtl"] .radio.radio-icon input[type="radio"] + label > span.check {
 .fileUpload {
   position: relative;
   overflow: hidden;
+  padding-top: 10px;
+}
+
+.fileUpload span {
+  padding-right: 10px;
 }
 
 .fileUpload .canvas-holder {
